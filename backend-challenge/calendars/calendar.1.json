@@ -1,6 +1,6 @@
 {
-	"durationBefore": 5,
-	"durationAfter": 5,
+	"durationBefore": 10,
+	"durationAfter": 10,
 	"slots": {
 		"10-04-2023": [
 			{
@@ -35,7 +35,7 @@
 		"10-04-2023": [
 			{
 				"start": "11:15",
-				"end": "12:15"
+				"end": "13:15"
 			}
 		]
 	}

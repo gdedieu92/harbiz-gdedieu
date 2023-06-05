@@ -1,13 +1,18 @@
 const moment = require('moment')
 const fs = require('fs');
 
-const timeFormat = "HH:mm";
+const timeFormat = `HH:mm`;
 const fileDateFormat = `DD-MM-YYYY ${timeFormat}`;
-const isoDateFormat = `YYYY-MM-DD ${timeFormat}`;
+
 
 class ReadFile {
 	constructor(filename) {
-		this.buffer = fs.readFileSync(filename);
+		try {
+			this.buffer = fs.readFileSync(filename);
+		} catch (error) {
+			console.log('there is an error on the file you try to import', error);
+		}
+
 	}
 
 	parseJson() {
@@ -15,9 +20,31 @@ class ReadFile {
 	}
 }
 
+class ResponseManagerInterface {
+	sendResponse() { }
+}
+
+class SimpleResponseManager {
+	sendResponse(filteredSlotsArray, date) {
+		let formattedArray = [];
+		if (filteredSlotsArray) {
+			filteredSlotsArray.forEach(slot => {
+				formattedArray.push({
+					startHour: moment.utc(date + ` ` + slot.start, fileDateFormat)
+						.toDate(),
+					endHour: moment.utc(date + ` ` + slot.end, fileDateFormat)
+						.toDate(),
+				});
+			})
+		}
+		return formattedArray
+	}
+}
+
 class Calendar {
 
-	constructor(calendarData) {
+	constructor(calendarData, responseManager) {
+		this.responseManager = responseManager;
 		this.calendarData = calendarData;
 	}
 
@@ -63,8 +90,12 @@ class Calendar {
 	}
 
 	splitSlotByDuration(slot, duration) {
-		if (isNaN(duration) || duration <= 0) {
-			throw new Error('duration must by a positive number');
+		if (!slot || typeof slot !== 'object' || !duration || typeof duration !== 'number') {
+			throw new Error('Invalid input data format');
+		}
+
+		if (duration <= 0 || isNaN(duration)) {
+			throw new Error('Duration value must be a positive integer');
 		}
 
 
@@ -84,7 +115,7 @@ class Calendar {
 			for (let x = 0; x < slotsToCreate; x++) {
 				durationSlots.push({
 					start: dateTimeStart.format(timeFormat),
-					end: dateTimeStart.add(sessionDuration, 'minutes').format(timeFormat)
+					end: dateTimeStart.add(sessionDuration, `minutes`).format(timeFormat)
 				})
 			}
 		}
@@ -92,7 +123,7 @@ class Calendar {
 	}
 
 	calculateSessionDuration(duration) {
-		return parseInt(duration) + parseInt(this.calendarData.durationBefore) + parseInt(this.calendarData.durationAfter);
+		return parseInt(duration) + parseInt(this.getDurationBefore()) + parseInt(this.getDurationAfter());
 	}
 
 	dateTimeByDateAndTime(time) {
@@ -100,19 +131,20 @@ class Calendar {
 	}
 
 	diffMinutes(dateTimeStart, dateTimeEnd) {
-		return dateTimeEnd.diff(dateTimeStart, 'minutes');
+		return dateTimeEnd.diff(dateTimeStart, `minutes`);
 	}
 
 	removeSlotsWithSessions(splittedSlots, dateSessions) {
 		let filteredSessions = [];
-		dateSessions.forEach(session => {
-			splittedSlots.forEach((eachSlot) => {
+		let indexToRemove = [];
+		splittedSlots.forEach((eachSlot, idx) => {
+			dateSessions.forEach(session => {
 				let isBetween = this.isSessionTimeBetweenRange(eachSlot.start, eachSlot.end, session.start, session.end);
-				if (!isBetween) {
-					filteredSessions.push(eachSlot);
-				}
+				if (isBetween) indexToRemove.push(idx);
 			})
 		})
+
+		filteredSessions = splittedSlots.filter((val, index) => !indexToRemove.includes(index));
 
 		return filteredSessions;
 	}
@@ -136,149 +168,18 @@ class Calendar {
 		const splittedSlots = this.splitSlotsByDuration(slotsByDate, duration);
 		const dateSessions = this.getSessionsByDate(date);
 		const filteredSlots = this.removeSlotsWithSessions(splittedSlots, dateSessions);
-		return filteredSlots;
+
+		return this.responseManager.sendResponse(filteredSlots, date);;
 	}
 
 }
 
-class ResponseManager {
-	static response(filteredSlotsArray) {
-		let formattedArray = [];
-		if (filteredSlotsArray.length) {
-			filteredSlotsArray.forEach(slot => {
-				formattedArray.push({
-					startHour: moment.utc(dateISO + ' ' + slot.start)
-						.toDate(),
-					endHour: moment.utc(dateISO + ' ' + slot.end)
-						.toDate(),
-					clientStartHour: moment.utc(dateISO + ' ' + clientStartHour)
-						.toDate(),
-					clientEndHour: moment.utc(dateISO + ' ' + clientEndHour)
-						.toDate(),
-				});
-			})
-		}
-		return formattedArray;
-	}
-}
-
-
-// let calendarData = new ReadFile(`./calendars/calendar.1.json`).parseJson();
-// let calendarObj = new Calendar(calendarData);
-// // console.log((calendarObj.getAvailableSlotsByDateAndDuration('10-04-2023', 30)));
-
-
-// // // 
-
-// console.log(getAvailableSpots(1, "10-04-2023", 30));
 
 function getAvailableSpots(calendar, date, duration) {
 
-	// let calendarData = new ReadFile(`./calendars/calendar.${calendar}.json`).parseJson();
-	// let calendarObj = new Calendar(calendarData);
-	// return ResponseManager.response(calendarObj.getAvailableSlotsByDateAndDuration(date, duration));
-
-	let rawdata = fs.readFileSync('./calendars/calendar.' + calendar + '.json');
-	let data = JSON.parse(rawdata);
-	const dateISO = moment(date, 'DD-MM-YYYY').format('YYYY-MM-DD')
-	let durationBefore = data.durationBefore;
-	let durationAfter = data.durationAfter;
-	let daySlots = []
-	for (const key in data.slots) {
-		if (key === date) {
-			daySlots = data.slots[key]
-		}
-	}
-
-	const realSpots = []
-	daySlots.forEach(daySlot => {
-		if (data.sessions && data.sessions[date]) {
-			let noConflicts = true
-			data.sessions[date].forEach(sessionSlot => {
-				let sessionStart = moment(dateISO + ' ' + sessionSlot.start).valueOf()
-				let sessionEnd = moment(dateISO + ' ' + sessionSlot.end).valueOf()
-				let start = moment(dateISO + ' ' + daySlot.start).valueOf()
-				let end = moment(dateISO + ' ' + daySlot.end).valueOf()
-				if (sessionStart > start && sessionEnd < end) {
-					realSpots.push({ start: daySlot.start, end: sessionSlot.start })
-					realSpots.push({ start: sessionSlot.end, end: daySlot.end })
-					noConflicts = false
-				} else if (sessionStart === start && sessionEnd < end) {
-					realSpots.push({ start: sessionSlot.end, end: daySlot.end })
-					noConflicts = false
-				} else if (sessionStart > start && sessionEnd === end) {
-					realSpots.push({ start: daySlot.start, end: sessionSlot.start })
-					noConflicts = false
-				} else if (sessionStart === start && sessionEnd === end) {
-					noConflicts = false
-				}
-			})
-			if (noConflicts) {
-				realSpots.push(daySlot)
-			}
-		} else {
-			realSpots.push(daySlot)
-		}
-	})
-
-	let arrSlot = [];
-	realSpots.forEach(function (slot) {
-		let init = 0;
-		let startHour;
-		let endHour;
-		let clientStartHour;
-		let clientEndHour;
-
-		function getMomentHour(hour) {
-			let finalHourForAdd = moment(dateISO + ' ' + hour);
-			return finalHourForAdd;
-		}
-		function addMinutes(hour, minutes) {
-			let result = moment(hour).add(minutes, 'minutes').format('HH:mm');
-			return result;
-		}
-		function removeMinutes(hour, minutes) {
-			let result = moment(hour).subtract(minutes, 'minutes').format('HH:mm');
-			return result;
-		}
-		function getOneMiniSlot(startSlot, endSlot) {
-			let startHourFirst = getMomentHour(startSlot);
-
-			startHour = startHourFirst.format('HH:mm');;
-			endHour = addMinutes(startHourFirst, durationBefore + duration + durationAfter);
-			clientStartHour = addMinutes(startHourFirst, durationBefore);
-			clientEndHour = addMinutes(startHourFirst, duration);
-
-			if (moment.utc(endHour, 'HH:mm').valueOf() > moment.utc(endSlot, 'HH:mm').valueOf()) {
-				return null;
-			}
-			const objSlot = {
-				startHour: moment.utc(dateISO + ' ' + startHour)
-					.toDate(),
-				endHour: moment.utc(dateISO + ' ' + endHour)
-					.toDate(),
-				clientStartHour: moment.utc(dateISO + ' ' + clientStartHour)
-					.toDate(),
-				clientEndHour: moment.utc(dateISO + ' ' + clientEndHour)
-					.toDate(),
-			};
-			init += 1;
-			return objSlot;
-		}
-
-		let start = slot.start;
-		let resultSlot;
-		do {
-			resultSlot = getOneMiniSlot(start, slot.end);
-			if (resultSlot) {
-				arrSlot.push(resultSlot);
-				start = moment.utc(resultSlot.endHour).format('HH:mm')
-			}
-		} while (resultSlot);
-
-		return arrSlot;
-	});
-	return arrSlot;
+	let calendarData = new ReadFile(`./calendars/calendar.${calendar}.json`).parseJson();
+	let calendarObj = new Calendar(calendarData, new SimpleResponseManager());
+	return (calendarObj.getAvailableSlotsByDateAndDuration(date, duration));
 }
 
 module.exports = { getAvailableSpots }
