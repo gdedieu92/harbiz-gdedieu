@@ -1,5 +1,8 @@
 # harbiz-gdedieu => full stack engineer
 
+
+* * General Disclaimer, i do not paid much attention to .gitignore files for repos, do not hate me :( * *
+
 ## The exercise "Random User Generator API (React)" is done in frontend-users web App
 
 #Created with https://create-react-app.dev/ to quick setup and work on the specific features request. 
